@@ -1,42 +1,73 @@
-#!/usr/bin/env bash
-# bin/compile <build-dir> <cache-dir>
+#!/bin/bash
 
+basedir="$( cd -P "$( dirname "$0" )" && pwd )"
+
+# Set errors
 set -e
+set -o pipefail
 
-if [ -n "$BUILDPACK_DEBUG" ]; then
-    set -x
+if [ -n "${BUILDPACK_DEBUG}" ]; then
+  set -x
 fi
 
-BUILD_DIR=$1
-CACHE_DIR=$2
-ENV_DIR=$3
+# Configure directories
+BUILD_DIR="${1}"
+CACHE_DIR="${2}"
+ENV_DIR="${3}"
 
-BIN_PATH="$BUILD_DIR/bin"
-INSTALL_PATH="$BUILD_DIR/vendor/wkhtmltox"
-mkdir -p $CACHE_DIR $BIN_PATH $INSTALL_PATH
+export APACHE_DIR="${APACHE_DIR:-$BUILD_DIR/vendor/apache2}"
+export APT_FILE_MANIFEST="Aptfile.apache"
 
-if [[ -f "$ENV_DIR/WKHTMLTOPDF_VERSION" ]]; then
-  WKHTMLTOPDF_VERSION=$(cat "$ENV_DIR/WKHTMLTOPDF_VERSION")
-else
-  if [[ "$STACK" = "scalingo-18" ]] || [[ "$STACK" = "scalingo-20" ]] ; then
-    WKHTMLTOPDF_VERSION="0.12.6-1"
-  elif [[ "$STACK" = "scalingo-22" ]] ; then
-    WKHTMLTOPDF_VERSION="0.12.6.1-2"
+echo "apache2" >> "$BUILD_DIR/${APT_FILE_MANIFEST}"
+
+
+apt_deps_buildpack_dir=$(mktemp apt_buildpack_XXXX)
+
+# only the name is interesting, deleting the temp empty file
+rm "${apt_deps_buildpack_dir}"
+
+APT_BUILDPACK_URL="${APT_BUILDPACK_URL:-https://github.com/Scalingo/apt-buildpack}"
+git clone --depth=1 "${APT_BUILDPACK_URL}" "${apt_deps_buildpack_dir}"
+
+# We first install Apache alone:
+"${apt_deps_buildpack_dir}/bin/compile" "${BUILD_DIR}" "${CACHE_DIR}" "${ENV_DIR}"
+
+
+# Then we have to filter out the list of modules the user requires.
+# Some are shipped with the Apache package, we don't want to try to install
+# them (it would make the buildpack fail).
+
+# Reset APT_FILE_MANIFEST so we don't re-install Apache:
+rm "${BUILD_DIR}/${APT_FILE_MANIFEST}"
+
+# Build the list of modules to install:
+if [ -f "${BUILD_DIR}/.apache-mods" ]; then
+    grep -E '^[a-z-]+$' < "${BUILD_DIR}/.apache-mods" | while IFS= read -r apache_mod ; do
+    apache_mod_filename="mod_$( echo "${apache_mod}" | tr "-" "_" ).so"
+    install_mod="$( ls "${BUILD_DIR}/.apt/usr/lib/apache2/modules/" \
+                    | { grep --count "${apache_mod_filename}" || true; } )"
+
+    # If the module isn't shipped by default, let's install it:
+    if [ ${install_mod} -eq 0 ]; then
+      echo "libapache2-mod-${apache_mod}" >> "${BUILD_DIR}/${APT_FILE_MANIFEST}"
+    fi
+  done
+
+  # We finally have to call the apt-buildpack again, this time to install the
+  # missing Apache modules that we just filtered out.
+  # At this point, if the module can't be found, it means it's neither a default
+  # module nor an installable one. And the buildpack will fail.
+  if [ -f "${BUILD_DIR}/${APT_FILE_MANIFEST}" ]; then
+    "${apt_deps_buildpack_dir}/bin/compile" "${BUILD_DIR}" "${CACHE_DIR}" "${ENV_DIR}"
   fi
 fi
 
-if [[ "$STACK" = "scalingo-18" ]] ; then
-  dist="bionic"
-elif [[ "$STACK" = "scalingo-20" ]] ; then
-  dist="focal"
-elif [[ "$STACK" = "scalingo-22" ]] ; then
-  dist="jammy"
-else
-  echo " !     Unknown STACK ${STACK}"
-fi
+rm -r "${apt_deps_buildpack_dir}"
 
-echo "-----> Installing fonts"
-mkdir -p "${BUILD_DIR}/.fonts"
-ls $FONTS_DIR
-cp $FONTS_DIR/* "${BUILD_DIR}/.fonts/"
-fc-cache -f "${BUILD_DIR}/.fonts"
+mkdir -p "${APACHE_DIR}/logs"
+mkdir -p "${APACHE_DIR}/conf"
+
+cp "${basedir}/../conf/httpd.conf.erb" "${APACHE_DIR}/conf/httpd.conf.erb"
+
+mkdir -p "${BUILD_DIR}/bin"
+cp "${basedir}/startup.sh" "${BUILD_DIR}/bin/startup.sh"

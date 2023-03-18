@@ -1,4 +1,4 @@
-#!/usr/bin/env bash
+#!/bin/bash
 
-echo "wkhtmltopdf-buildpack"
+echo "Apache Buildpack"
 exit 0

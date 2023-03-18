@@ -1,2 +1,10 @@
 #!/usr/bin/env bash
-echo "--- {}"
+# bin/release <build-dir>
+
+BUILD_DIR=$1
+
+cat <<EOF
+---
+default_process_types:
+  web: /app/bin/startup.sh
+EOF
