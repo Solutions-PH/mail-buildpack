@@ -1,4 +1,4 @@
 #!/bin/bash
 
-echo "Apache Buildpack"
+echo "Mail Buildpack"
 exit 0
