@@ -1,0 +1,8 @@
+version = "1.0.0"
+owner = "edouard@7.fr"
+team = "IST"
+description = "Scalingo buildpack"
+languages = ["shell"]
+destination_server = []
+flags = ["buildpack"]
+dependencies = []
