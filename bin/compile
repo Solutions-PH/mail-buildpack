@@ -1,3 +1,42 @@
-#!/bin/sh
+#!/usr/bin/env bash
+# bin/compile <build-dir> <cache-dir>
 
-ls
+set -e
+
+if [ -n "$BUILDPACK_DEBUG" ]; then
+    set -x
+fi
+
+BUILD_DIR=$1
+CACHE_DIR=$2
+ENV_DIR=$3
+
+BIN_PATH="$BUILD_DIR/bin"
+INSTALL_PATH="$BUILD_DIR/vendor/wkhtmltox"
+mkdir -p $CACHE_DIR $BIN_PATH $INSTALL_PATH
+
+if [[ -f "$ENV_DIR/WKHTMLTOPDF_VERSION" ]]; then
+  WKHTMLTOPDF_VERSION=$(cat "$ENV_DIR/WKHTMLTOPDF_VERSION")
+else
+  if [[ "$STACK" = "scalingo-18" ]] || [[ "$STACK" = "scalingo-20" ]] ; then
+    WKHTMLTOPDF_VERSION="0.12.6-1"
+  elif [[ "$STACK" = "scalingo-22" ]] ; then
+    WKHTMLTOPDF_VERSION="0.12.6.1-2"
+  fi
+fi
+
+if [[ "$STACK" = "scalingo-18" ]] ; then
+  dist="bionic"
+elif [[ "$STACK" = "scalingo-20" ]] ; then
+  dist="focal"
+elif [[ "$STACK" = "scalingo-22" ]] ; then
+  dist="jammy"
+else
+  echo " !     Unknown STACK ${STACK}"
+fi
+
+echo "-----> Installing fonts"
+mkdir -p "${BUILD_DIR}/.fonts"
+ls $FONTS_DIR
+cp $FONTS_DIR/* "${BUILD_DIR}/.fonts/"
+fc-cache -f "${BUILD_DIR}/.fonts"
